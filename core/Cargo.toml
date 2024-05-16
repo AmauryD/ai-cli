@@ -1,0 +1,17 @@
+[package]
+name = "core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+http = "1.1.0"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1.0.117"
+ureq = { "version"="2.9.7", features=["json"] }
+
+[features]
+mockdata = []
+
+[dev-dependencies]
+mockall = "0.12.1"
+pretty_assertions = "1.4.0"
