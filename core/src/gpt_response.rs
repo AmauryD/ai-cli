@@ -15,3 +15,8 @@ pub struct Message {
     pub role: String,
     pub content: String,
 }
+
+#[cfg(test)]
+mod tests {
+    // no logic to test
+}

@@ -1,56 +1,64 @@
-mod call_command;
+use std::io::stdout;
 
-use core::{completion, configuration::Configuration, context::Context};
-use call_command::get_available_commands;
-use std::{env, io::{stderr, stdin, stdout, Write}, process::{exit, Command}};
+use config::load_from_file::LoadConfigFromFile;
+use context::{cwd::GetCwdImpl, env_vars::ExtractEnvVarsImpl, get_context::GetContextImpl};
+use terminal::run_cli_command::{RunCommand, ShellRunner, ShellType};
+
+pub(crate) mod config {
+    pub(crate) mod load_from_file;
+    pub(crate) mod load_config_error;
+}
+pub(crate) mod context {
+    pub(super) mod get_context;
+    pub(crate) mod env_vars;
+    pub(crate) mod cwd;
+}
+
+pub(crate) mod terminal {
+    pub(crate) mod run_cli_command;
+    pub(crate) mod ask_user_confirmation;
+}
+mod gpt_resolver;
+mod get_gpt_result;
+
+
 
 fn main() {
-    let args = std::env::args().collect::<Vec<String>>()[1..].join(" ");
-
-    let config = Configuration::new("http://localhost:8080/v1/chat/completions", "llama3-8b-instruct");
-    let cwdbuff = env::current_dir().unwrap();
-    let available_commands = get_available_commands().unwrap();
-    let env_vars = env::vars().map(|(k, v)| format!("{}: {}", k, v)).collect::<Vec<String>>().join("\n");
-
-    let context: Context = Context {
-        env_vars: env_vars.as_str(),
-        cwd: cwdbuff.to_str().unwrap(),
-        available_commands: available_commands.as_str()
+    let shell_runner = ShellRunner::new(ShellType::Zsh);
+    let context_getter = GetContextImpl {
+        shell_runner: &shell_runner,
+        env_vars_extractor: &ExtractEnvVarsImpl {},
+        cwd_extractor: &GetCwdImpl {},
     };
 
-    let response = completion(&args, config, context).unwrap();
+    let gpt = gpt_resolver::resolve_gpt(
+        LoadConfigFromFile,
+        context_getter
+    );
 
-    println!("{}", response);
-    println!("Do you want to run this command? (y/n)");
-
-    let mut input = String::new();
-    stdin().read_line(&mut input).unwrap();
-
-    if input.trim() != "y" {
-        exit(0);
+    if let Err(e) = gpt {
+        eprintln!("{}", e);
+        return;
     }
-    
-    let stripped = response.replace("`", "");
 
-    println!("Running command: {}", stripped);
+    let prompt = std::env::args().collect::<Vec<String>>()[1..].join(" ");
 
-    let result = Command::new("zsh")
-        .args(&["-c", &stripped])
-        .stdin(std::process::Stdio::inherit())
-        .stdout(std::process::Stdio::inherit())
-        .output();
+    let response = get_gpt_result::get_gpt_result(
+        gpt.unwrap(),
+        prompt,
+        stdout(),
+        std::io::stdin().lock()
+    );
 
-    match result {
-        Ok(output) => {
-            if output.status.success() {
-                stdout().write_all(&output.stdout).unwrap();
-            } else {
-                stderr().write_all(&output.stderr).unwrap();
-            }
-        }
+    match response {
+        Ok(response) => {
+            shell_runner.run_command(response)
+                .map(|output| println!("{}", output))
+                .unwrap_or_else(|e| eprintln!("{}", e));
+        },
         Err(e) => {
-            stderr().write_all(&e.to_string().as_bytes()).unwrap();
-            exit(1);
+            eprintln!("{}", e);
+            return;
         }
     }
 }
