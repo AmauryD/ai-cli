@@ -47,6 +47,8 @@ Example :
     >> /dev/disk0 (internal, physical): ...
 ```
 
+![Always has been](./8rnkmh.jpg)
+
 
 ## License
 
